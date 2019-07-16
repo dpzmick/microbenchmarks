@@ -57,7 +57,7 @@ void* thread(void* _arg)
   while (1) {
     // seems to be memory bandwidth limited
     // if (exanic_transmit_frame(tx, frame, sizeof(frame)) != 0) abort();
-    char* frame = exanic_begin_transmit_frame(tx, 1000);
+    char* frame = exanic_begin_transmit_frame(tx, 1000); // should prep these in big pass, then do some sort of staged/pipelined sending
     if (!frame) abort();
     memset(frame, 0xff, 100);
     if (0 != exanic_end_transmit_frame(tx, 1000)) abort();
