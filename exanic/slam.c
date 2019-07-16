@@ -12,18 +12,18 @@
 typedef struct {
   char const* device;
   int         port;
-  int         numa_node;
+  int         core;
 } dport_t;
 
 static dport_t ports[] = {
-  {.device = "exanic0", .port = 0, .numa_node = 0},
-  {.device = "exanic0", .port = 1, .numa_node = 2},
-  {.device = "exanic0", .port = 2, .numa_node = 4},
-  {.device = "exanic0", .port = 3, .numa_node = 6},
-  {.device = "exanic1", .port = 0, .numa_node = 16},
-  {.device = "exanic1", .port = 1, .numa_node = 18},
-  {.device = "exanic1", .port = 2, .numa_node = 20},
-  {.device = "exanic1", .port = 3, .numa_node = 22},
+  {.device = "exanic0", .port = 0, .core = 0},
+  {.device = "exanic0", .port = 1, .core = 2},
+  {.device = "exanic0", .port = 2, .core = 4},
+  {.device = "exanic0", .port = 3, .core = 6},
+  {.device = "exanic1", .port = 0, .core = 16},
+  {.device = "exanic1", .port = 1, .core = 18},
+  {.device = "exanic1", .port = 2, .core = 20},
+  {.device = "exanic1", .port = 3, .core = 22},
 };
 
 static int thread_bind_core(pthread_t thread, int core)
@@ -39,23 +39,6 @@ static int thread_bind_core(pthread_t thread, int core)
     return -1;
   }
 }
-
-// static int thread_bind(pthread_t thread, int numa_node)
-// {
-//   cpu_set_t mask[1];
-//   CPU_ZERO(mask);
-//   for (size_t i = 0; i < 16; ++i) {
-//     printf("using cpu %d\n", i);
-//     CPU_SET(16*numa_node + i, mask);
-//   }
-
-//   if (0 == pthread_setaffinity_np(thread, sizeof(mask), mask)) {
-//     return 0;
-//   }
-//   else {
-//     return -1;
-//   }
-// }
 
 void* thread(void* _arg)
 {
@@ -95,7 +78,7 @@ int main()
   }
 
   for (size_t i = 0; i < ARRAY_SIZE(ports); ++i) {
-    int ret = thread_bind_core(threads[i], ports[i].numa_node);
+    int ret = thread_bind_core(threads[i], ports[i].core);
     if (ret != 0) {
       fprintf(stderr, "numa\n");
       return 1;
