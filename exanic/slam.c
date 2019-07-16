@@ -17,22 +17,20 @@ typedef struct {
 
 static dport_t ports[] = {
   {.device = "exanic0", .port = 0, .numa_node = 0},
-  {.device = "exanic0", .port = 1, .numa_node = 0},
-  {.device = "exanic0", .port = 2, .numa_node = 0},
-  {.device = "exanic0", .port = 3, .numa_node = 0},
-  {.device = "exanic1", .port = 0, .numa_node = 1},
-  {.device = "exanic1", .port = 1, .numa_node = 1},
-  {.device = "exanic1", .port = 2, .numa_node = 1},
-  {.device = "exanic1", .port = 3, .numa_node = 1},
+  {.device = "exanic0", .port = 1, .numa_node = 2},
+  {.device = "exanic0", .port = 2, .numa_node = 4},
+  {.device = "exanic0", .port = 3, .numa_node = 6},
+  {.device = "exanic1", .port = 0, .numa_node = 16},
+  {.device = "exanic1", .port = 1, .numa_node = 18},
+  {.device = "exanic1", .port = 2, .numa_node = 20},
+  {.device = "exanic1", .port = 3, .numa_node = 22},
 };
 
-static int thread_bind(pthread_t thread, int numa_node)
+static int thread_bind_core(pthread_t thread, int core)
 {
   cpu_set_t mask[1];
   CPU_ZERO(mask);
-  for (size_t i = 0; i < 16; ++i) {
-    CPU_SET(16*numa_node + i, mask);
-  }
+  CPU_SET(core, mask);
 
   if (0 == pthread_setaffinity_np(thread, sizeof(mask), mask)) {
     return 0;
@@ -41,6 +39,23 @@ static int thread_bind(pthread_t thread, int numa_node)
     return -1;
   }
 }
+
+// static int thread_bind(pthread_t thread, int numa_node)
+// {
+//   cpu_set_t mask[1];
+//   CPU_ZERO(mask);
+//   for (size_t i = 0; i < 16; ++i) {
+//     printf("using cpu %d\n", i);
+//     CPU_SET(16*numa_node + i, mask);
+//   }
+
+//   if (0 == pthread_setaffinity_np(thread, sizeof(mask), mask)) {
+//     return 0;
+//   }
+//   else {
+//     return -1;
+//   }
+// }
 
 void* thread(void* _arg)
 {
@@ -54,10 +69,15 @@ void* thread(void* _arg)
     abort();
   }
 
-  char frame[1000];
-  memset(frame, 0xff, 1000);
+  // char frame[1000];
+  // memset(frame, 0xff, 1000);
   while (1) {
-    if (exanic_transmit_frame(tx, frame, sizeof(frame)) != 0) abort();
+    // seems to be memory bandwidth limited
+    // if (exanic_transmit_frame(tx, frame, sizeof(frame)) != 0) abort();
+    char* frame = exanic_begin_transmit_frame(tx, 1000);
+    if (!frame) abort();
+    memset(frame, 0xff, 100);
+    if (0 != exanic_end_transmit_frame(tx, 1000)) abort();
   }
 
   return NULL;
@@ -75,7 +95,7 @@ int main()
   }
 
   for (size_t i = 0; i < ARRAY_SIZE(ports); ++i) {
-    int ret = thread_bind(threads[i], ports[i].numa_node);
+    int ret = thread_bind_core(threads[i], ports[i].numa_node);
     if (ret != 0) {
       fprintf(stderr, "numa\n");
       return 1;
