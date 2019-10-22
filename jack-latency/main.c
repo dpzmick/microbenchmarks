@@ -14,6 +14,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#define N_PULSE 4096*1024
+
 static atomic_bool wait = ATOMIC_VAR_INIT(true);
 static atomic_int  done  = ATOMIC_VAR_INIT(0);
 
@@ -27,7 +29,7 @@ typedef struct {
   jack_client_t * client;
   jack_port_t *   incoming; // if none, send pulses
   jack_port_t *   outgoing; // if none, record pulses
-  uint64_t        pulse_times[1024];
+  uint64_t        pulse_times[N_PULSE];
 } thread_args_t;
 
 static inline uint64_t now(void)
@@ -58,7 +60,7 @@ jack_thread(void* thread_args_p)
     jack_cycle_signal(args->client, 0);
   }
 
-  size_t rem = 1024;
+  size_t rem = N_PULSE;
   if (!args->incoming) {
     size_t frames_till_next = 32;
     while (1) {
@@ -68,7 +70,7 @@ jack_thread(void* thread_args_p)
         frames_till_next -= 1;
         if (frames_till_next == 0) {
           buf_out[i] = 1.0;
-          args->pulse_times[1024-rem] = now();
+          args->pulse_times[N_PULSE-rem] = now();
 
           rem              -= 1;
           frames_till_next  = 32;
@@ -91,7 +93,7 @@ jack_thread(void* thread_args_p)
 
       for (size_t i = 0; i < frames; ++i) {
         if (buf_in[i] == 1) {
-          args->pulse_times[1024-rem] = now();
+          args->pulse_times[N_PULSE-rem] = now();
           rem -= 1;
         }
       }
@@ -111,7 +113,7 @@ jack_thread(void* thread_args_p)
 
       for (size_t i = 0; i < frames; ++i) {
         if (buf_in[i] == 1) {
-          args->pulse_times[1024-rem] = now();
+          args->pulse_times[N_PULSE-rem] = now();
           rem -= 1;
         }
       }
@@ -149,7 +151,9 @@ int main(int argc, char** argv) {
 
   fprintf(stderr, "Running jack round-trip latency benchmark with %zu clients\n", n_clients);
 
-  thread_args_t        thread_args[64];
+  thread_args_t * thread_args = calloc(64, sizeof(thread_args_t));
+  if (!thread_args) assert(false);
+
   for (size_t i = 0; i < n_clients; ++i) {
     char          client_name[1024];
     sprintf(client_name, "bench%zu", i);
@@ -231,7 +235,11 @@ int main(int argc, char** argv) {
     usleep(100000);
   }
 
-  for (size_t p = 0; p < 1024; ++p) {
+  for (size_t c = 0; c < n_clients; ++c) {
+    jack_client_close(thread_args[c].client);
+  }
+
+  for (size_t p = 0; p < N_PULSE; ++p) {
     /* for (size_t c = 0; c < n_clients; ++c) { */
     /*   printf("%zu,", thread_args[c].pulse_times[p]); */
     /* } */
