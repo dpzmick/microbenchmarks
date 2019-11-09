@@ -3,3 +3,4 @@ project(microbenchmarks)
 
 add_subdirectory(network-branch-predict)
 add_subdirectory(exanic)
+add_subdirectory(jack-latency)
