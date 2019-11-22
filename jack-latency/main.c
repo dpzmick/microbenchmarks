@@ -20,10 +20,11 @@
 // #define N_PULSE 1
 
 // get from /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq
-#define CLOCK_RT_HZ 3900000
+// or look in dmesg
+#define CLOCK_RT_HZ (3892685000)
 
 static atomic_bool wait = ATOMIC_VAR_INIT(true);
-static atomic_int  done  = ATOMIC_VAR_INIT(0);
+static atomic_int  done = ATOMIC_VAR_INIT(0);
 
 typedef enum {
   THREAD_MODE_SOURCE,
@@ -59,8 +60,10 @@ rdtscp(void)
 static inline uint64_t
 nano_diff(uint64_t rdtsc1, uint64_t rdtsc2)
 {
+  // 1/(cycle/sec) = sec/cycle
+  // sec/cycle * ns/sec = ns/cycle
   static const float nanos_per_cycle = (1./CLOCK_RT_HZ)*1e9;
-  uint64_t diff = rdtsc2 - rdtsc1;
+  uint64_t diff = rdtsc2 - rdtsc1; // cycles
   return (uint64_t)( (float)diff / nanos_per_cycle );
 }
 
