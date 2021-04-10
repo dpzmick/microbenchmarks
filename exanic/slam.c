@@ -22,17 +22,22 @@ static dport_t ports[] = {
   {.device = "exanic0", .port = 0, .core = 2,  .id = 1},
   {.device = "exanic0", .port = 0, .core = 4,  .id = 3},
   {.device = "exanic0", .port = 0, .core = 6,  .id = 4},
-  {.device = "exanic0", .port = 1, .core = 8,  .id = 5},
-  {.device = "exanic0", .port = 1, .core = 10, .id = 6},
-  {.device = "exanic0", .port = 1, .core = 12, .id = 7},
-  {.device = "exanic0", .port = 1, .core = 14, .id = 8},
-  // {.device = "exanic0", .port = 1, .core = 2},
-  // {.device = "exanic0", .port = 2, .core = 4},
-  // {.device = "exanic0", .port = 3, .core = 6},
-  // {.device = "exanic1", .port = 0, .core = 16},
-  // {.device = "exanic1", .port = 1, .core = 18},
-  // {.device = "exanic1", .port = 2, .core = 20},
-  // {.device = "exanic1", .port = 3, .core = 22},
+  // {.device = "exanic0", .port = 0, .core = 8,  .id = 5},
+  // {.device = "exanic0", .port = 0, .core = 10,  .id = 6},
+  // {.device = "exanic0", .port = 0, .core = 12,  .id = 7},
+  // {.device = "exanic0", .port = 0, .core = 14,  .id = 8},
+  // {.device = "exanic0", .port = 1, .core = 8,  .id = 5},
+  // {.device = "exanic0", .port = 1, .core = 10, .id = 6},
+  // {.device = "exanic0", .port = 1, .core = 12, .id = 7},
+  // {.device = "exanic0", .port = 1, .core = 14, .id = 8},
+  // {.device = "exanic0", .port = 2, .core = 1,  .id = 9},
+  // {.device = "exanic0", .port = 2, .core = 3, .id = 10},
+  // {.device = "exanic0", .port = 2, .core = 5, .id = 11},
+  // {.device = "exanic0", .port = 2, .core = 7, .id = 12},
+  // {.device = "exanic0", .port = 3, .core = 9,  .id = 13},
+  // {.device = "exanic0", .port = 3, .core = 11, .id = 14},
+  // {.device = "exanic0", .port = 3, .core = 13, .id = 15},
+  // {.device = "exanic0", .port = 3, .core = 15, .id = 16},
 };
 
 static int thread_bind_core(pthread_t thread, int core)
@@ -56,7 +61,7 @@ void* thread(void* _arg)
   if (!exanic) abort();
 
   size_t pkt_size = 128-28;
-  size_t n        = 128/4;
+  size_t n        = (pkt_size+28)/4;
 
   exanic_tx_t* tx = exanic_acquire_tx_buffer(exanic, port->port, n*(pkt_size+28));
   if (!tx) {
@@ -80,7 +85,7 @@ void* thread(void* _arg)
   char pld[pkt_size-16]; memset(pld, 'x', sizeof(pld));
   memcpy(frame + 16, pld, sizeof(pld));
 
-  uint16_t* feedback = exanic->tx_feedback_slots;
+  uint16_t volatile* feedback = exanic->tx_feedback_slots;
   printf("feedback at %p for %s/%d/%d\n", feedback, port->device, port->port, port->id);
 
   for (size_t i = 0; i < n; ++i) {
@@ -97,28 +102,46 @@ void* thread(void* _arg)
     memcpy(chunk_frame, frame, sizeof(frame));
   }
 
-   tx->exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_PCIE_IF_VER)]
-     = 0xDEADBEEF;
+  tx->exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_PCIE_IF_VER)]
+    = 0xDEADBEEF;
 
-  uint32_t now = 0;
+  // fire them all
+  for (size_t i = 0; i < n; ++i) {
+    struct tx_chunk* chunk = tx->buffer + (pkt_size+28)*i;
+    chunk->feedback_id = port->id;
+
+    int offset = (pkt_size+28)*i;
+
+    // this stuff isn't documented?
+    tx->exanic->registers[REG_PORT_INDEX(tx->port_number, REG_PORT_TX_COMMAND)]
+      = offset + tx->buffer_offset;
+  }
+
+  uint32_t now[4] = {0, 0, 0, 0};
   while (1) {
-    if (now == 0) now = 1;
-    else          now = 0;
-
-    for (size_t i = 0; i < n; ++i) {
-      struct tx_chunk* chunk = tx->buffer + (pkt_size+28)*i;
-      chunk->feedback_id = port->id + now*100;
-
-      int offset = (pkt_size+28)*i;
-
-      // this stuff isn't documented?
-      tx->exanic->registers[REG_PORT_INDEX(tx->port_number, REG_PORT_TX_COMMAND)]
-        = offset + tx->buffer_offset;
+    size_t done = 10;
+    while (1) {
+      for (size_t i = 0; i < n; ++i) {
+        if (feedback[port->id*100 + i] == port->id + now[i]*100) {
+          done = i;
+        }
+      }
+      if (done != 10) break;
     }
 
-    for (size_t i = 0; i < n; ++i) {
-      while (feedback[port->id*100 + i] != port->id + now*100) asm volatile("pause" ::: "memory");
-    }
+    printf("done: %zu\n", done);
+
+    // found a done one, fire again
+    now[done] += 1;
+
+    struct tx_chunk* chunk = tx->buffer + (pkt_size+28)*done;
+    chunk->feedback_id = port->id + now[done]*100;
+
+    int offset = (pkt_size+28)*done;
+
+    // this stuff isn't documented?
+    tx->exanic->registers[REG_PORT_INDEX(tx->port_number, REG_PORT_TX_COMMAND)]
+      = offset + tx->buffer_offset;
   }
 
   return NULL;
