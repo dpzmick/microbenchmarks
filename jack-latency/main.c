@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <jack/jack.h>
+#include <jack/thread.h>
 #include <limits.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -14,7 +15,12 @@
 #include <string.h>
 #include <unistd.h>
 
-#define N_PULSE 4096*1024
+#define N_PULSE 8192
+// #define N_PULSE 4096
+// #define N_PULSE 1
+
+// get from /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq
+#define CLOCK_RT_HZ 3900000
 
 static atomic_bool wait = ATOMIC_VAR_INIT(true);
 static atomic_int  done  = ATOMIC_VAR_INIT(0);
@@ -50,10 +56,25 @@ rdtscp(void)
   return (uint64_t)lo | (((uint64_t)hi) << 32);
 }
 
+static inline uint64_t
+nano_diff(uint64_t rdtsc1, uint64_t rdtsc2)
+{
+  static const float nanos_per_cycle = (1./CLOCK_RT_HZ)*1e9;
+  uint64_t diff = rdtsc2 - rdtsc1;
+  return (uint64_t)( (float)diff / nanos_per_cycle );
+}
+
 static void*
 jack_thread(void* thread_args_p)
 {
   thread_args_t* args = thread_args_p;
+  int ret = jack_acquire_real_time_scheduling(pthread_self(), 95);
+  if (ret != 0) {
+    fprintf(stderr, "Failed to go realtime\n");
+    atomic_fetch_add(&done, 1);
+    jack_cycle_signal(args->client, 1);
+    return NULL;
+  }
 
   while (atomic_load(&wait)) {
     jack_cycle_wait(args->client);
@@ -65,12 +86,15 @@ jack_thread(void* thread_args_p)
     size_t frames_till_next = 32;
     while (1) {
       jack_nframes_t frames  = jack_cycle_wait(args->client);
-      float* buf_out = jack_port_get_buffer(args->outgoing, frames);
+      float*         buf_out = jack_port_get_buffer(args->outgoing, frames);
+      //printf("source cycle at %zu\n", rdtscp());
       for (size_t i = 0; i < frames; ++i) {
         frames_till_next -= 1;
         if (frames_till_next == 0) {
           buf_out[i] = 1.0;
-          args->pulse_times[N_PULSE-rem] = now();
+          /* args->pulse_times[N_PULSE-rem] = now(); */
+          args->pulse_times[N_PULSE-rem] = rdtscp();
+          //printf("sent pulse at %zu\n", args->pulse_times[N_PULSE-rem]);
 
           rem              -= 1;
           frames_till_next  = 32;
@@ -90,10 +114,12 @@ jack_thread(void* thread_args_p)
     while (1) {
       jack_nframes_t frames  = jack_cycle_wait(args->client);
       float*         buf_in  = jack_port_get_buffer(args->incoming, frames);
+      //printf("sink cycle at %zu\n", rdtscp());
 
       for (size_t i = 0; i < frames; ++i) {
         if (buf_in[i] == 1) {
-          args->pulse_times[N_PULSE-rem] = now();
+          args->pulse_times[N_PULSE-rem] = rdtscp();
+          //printf("got pulse at %zu\n", args->pulse_times[N_PULSE-rem]);
           rem -= 1;
         }
       }
@@ -113,7 +139,7 @@ jack_thread(void* thread_args_p)
 
       for (size_t i = 0; i < frames; ++i) {
         if (buf_in[i] == 1) {
-          args->pulse_times[N_PULSE-rem] = now();
+          args->pulse_times[N_PULSE-rem] = rdtscp();
           rem -= 1;
         }
       }
@@ -247,8 +273,12 @@ int main(int argc, char** argv) {
 
     // printf("%zu\n", thread_args[n_clients-1].pulse_times[p] - thread_args[0].pulse_times[p]);
 
+    /* for (size_t c = 0; c < n_clients; ++c) { */
+    /*   printf("%zu,", thread_args[c].pulse_times[p]-thread_args[0].pulse_times[p]); */
+    /* } */
     for (size_t c = 0; c < n_clients; ++c) {
-      printf("%zu,", thread_args[c].pulse_times[p]-thread_args[0].pulse_times[p]);
+      printf("%zu,",
+             nano_diff(thread_args[0].pulse_times[p], thread_args[c].pulse_times[p]));
     }
     printf("\n");
   }
