@@ -8,7 +8,7 @@
 int main()
 {
   char* mem = calloc( MEM_SIZE, 1 );
-  // prefault_mem( mem, MEM_SIZE );
+  prefault_mem( mem, MEM_SIZE );
 
   for( size_t trial = 0; trial < 10; ++trial ) {
     mem[MEM_SIZE-1-trial*100] = 1;
@@ -26,7 +26,7 @@ int main()
 
     double sec = ((double)(ed-st))/1e9;
     double mib = ((double)MEM_SIZE)/1024/1024;
-    printf( "Scanned memory at %f MiB/s, where=%zu\n", mib/sec, where );
+    printf( "Scanned memory at %f MiB/s\n", mib/sec );
 
     mem[MEM_SIZE-1-trial*100] = 0;
   }
