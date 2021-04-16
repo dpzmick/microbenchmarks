@@ -43,3 +43,14 @@ static inline uint64_t now_monotonic(void) {
   clock_gettime(CLOCK_MONOTONIC, ts);
   return ts->tv_sec * 1000000000 + ts->tv_nsec;
 }
+
+/* force kernel to allocate pages for the memory it gave us */
+static inline void
+prefault_mem( char * mem, size_t sz )
+{
+  for( size_t i = 0; i < sz; i+= 4096 ) {
+    char val = mem[i];
+    extern_write(val);
+    mem[i] = val;
+  }
+}
