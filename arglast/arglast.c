@@ -12,7 +12,9 @@
 
 typedef bool (*pred_t)( int32_t e );
 
-size_t
+// interesting because compiler doesn't inline anything in C
+
+static inline size_t
 arglast( pred_t         pred,
          int32_t const* elems,
          size_t         n_elem )
@@ -24,7 +26,7 @@ arglast( pred_t         pred,
   return last;
 }
 
-size_t
+static inline size_t
 arglast_streaming( pred_t         pred,
                    int32_t const* elems,
                    size_t         n_elem )
@@ -38,19 +40,9 @@ arglast_streaming( pred_t         pred,
   return last;
 }
 
-// mumur3 hash finalizer
-static inline uint32_t fmix32(uint32_t h) {
-  h ^= h >> 16;
-  h *= 0x85ebca6b;
-  h ^= h >> 13;
-  h *= 0xc2b2ae35;
-  h ^= h >> 16;
-
-  return h;
-}
-
-void test( char const * name,
-           pred_t       pred )
+static inline void
+test( char const * name,
+      pred_t       pred )
 {
   // needs to be sufficiently random to avoid introducing predictor bias
   int * b = malloc( N*sizeof(int) );
@@ -76,12 +68,14 @@ void test( char const * name,
   free( b );
 }
 
-bool gt0( int32_t e )
+static inline bool
+gt0( int32_t e )
 {
   return e > 0;
 }
 
-bool sgt0( int32_t e )
+static inline bool
+sgt0( int32_t e )
 {
   return sin(e) > 0;
 }
